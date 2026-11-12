@@ -5,10 +5,10 @@ local plugin_keys = {}
 local plugin_snapshots = {}
 local initialized = {}
 local configured = false
-local reloading = false
+local loading = false
 
 local function notify(message, level)
-	vim.notify(message, level or vim.log.levels.INFO, { title = "Config reload" })
+	vim.notify(message, level or vim.log.levels.INFO, { title = "Config load" })
 end
 
 local function termcodes(text)
@@ -59,7 +59,7 @@ local function restore(record, value)
 end
 
 -- Capture mappings while each user config file executes. This also lets a later
--- reload remove old definitions and roll back mappings if the file raises an error.
+-- load remove old definitions and roll back mappings if the file raises an error.
 local function source(name)
 	local path = root .. "/lua/config/" .. name .. ".lua"
 	local chunk = assert(loadfile(path))
@@ -184,7 +184,7 @@ local function refresh_plugins()
 		desired[name] = globals(keys.resolve(plugin.values(spec, "keys", true)))
 	end
 	-- Rebuild only global key handlers. Existing event and filetype handlers stay
-	-- with their plugins and are refreshed when that plugin is explicitly reloaded.
+	-- with their plugins and are refreshed when that plugin is explicitly loaded again.
 	for name, entries in pairs(plugin_keys) do
 		for id, key in pairs(entries) do
 			before[id] = { mode = key.mode, lhs = key.lhs, value = mapping(key.mode, key.lhs) }
@@ -256,22 +256,22 @@ local function refresh_plugins()
 	vim.api.nvim_exec_autocmds("User", { pattern = "LazyRender", modeline = false })
 end
 
-function M.configuration(silent)
-	if reloading then
+function M.load_configuration(silent)
+	if loading then
 		return false
 	end
-	reloading = true
+	loading = true
 	local ok, err = pcall(function()
 		validate()
 		refresh_plugins()
 		source("options")
 		source("keymaps")
 	end)
-	reloading = false
+	loading = false
 	if not ok then
-		notify("Reload failed: " .. tostring(err), vim.log.levels.ERROR)
+		notify("Load failed: " .. tostring(err), vim.log.levels.ERROR)
 	elseif not silent then
-		notify("Reloaded saved options, keymaps, and plugin specifications.")
+		notify("Loaded saved options, keymaps, and plugin specifications.")
 	end
 	return ok
 end
@@ -286,12 +286,12 @@ local function load_plugin(name)
 	if spec._.loaded then
 		loader.reload(spec)
 	else
-		loader.load({ name }, { cmd = "Reload plugin" })
+		loader.load({ name }, { cmd = "Load plugin" })
 	end
 end
 
-function M.plugin()
-	if not M.configuration(true) then
+function M.load_plugin()
+	if not M.load_configuration(true) then
 		return
 	end
 	local config = require("lazy.core.config")
@@ -302,9 +302,9 @@ function M.plugin()
 		return a.name < b.name
 	end)
 	vim.ui.select(choices, {
-		prompt = "Load / reload plugin",
+		prompt = "Load plugin",
 		format_item = function(spec)
-			local action = spec._.loaded and "reload" or (spec._.installed and "load" or "install and load")
+			local action = spec._.installed and "load" or "install and load"
 			return spec.name .. " (" .. action .. ")"
 		end,
 	}, function(selected)
@@ -361,10 +361,10 @@ function M.plugin()
 		local cc = package.loaded["codecompanion"]
 		local chats = selected.name == "codecompanion.nvim" and cc and cc.buf_get_chat() or {}
 		if #chats > 0 then
-			vim.ui.select({ "Cancel", "Close chats and reload" }, {
-				prompt = "Reload CodeCompanion and close its " .. #chats .. " open chat buffer(s)?",
+			vim.ui.select({ "Cancel", "Close chats and load" }, {
+				prompt = "Load CodeCompanion again and close its " .. #chats .. " open chat buffer(s)?",
 			}, function(choice)
-				if choice == "Close chats and reload" then
+				if choice == "Close chats and load" then
 					for _, entry in ipairs(chats) do
 						entry.chat:close()
 					end
@@ -388,7 +388,7 @@ function M.setup()
 			return source(source_name)
 		end
 	end
-	local group = vim.api.nvim_create_augroup("config_reload", { clear = true })
+	local group = vim.api.nvim_create_augroup("config_load", { clear = true })
 	if package.loaded["lazy.core.config"] then
 		snapshot_plugins(true)
 	else
@@ -402,7 +402,7 @@ function M.setup()
 		})
 	end
 	local function which_key()
-		require("which-key").add({ { "<leader>r", group = "reload" } })
+		require("which-key").add({ { "<leader>l", group = "load" } })
 	end
 	if package.loaded["which-key"] then
 		which_key()
