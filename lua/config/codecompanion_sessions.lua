@@ -92,75 +92,159 @@ local function open_chats(session_id)
   return matches
 end
 
+local function load_chat(session, hidden)
+  local cwd = type(session.cwd) == "string" and session.cwd or vim.fn.getcwd()
+  assert(vim.fn.isdirectory(cwd) == 1, "The conversation's project directory no longer exists: " .. cwd)
+  local conn = get_connection()
+  assert(conn:can_load_session(), "This Codex adapter does not support resuming sessions.")
+  local updates = {}
+  conn.session_id = session.sessionId
+  conn._loading_session = true
+  conn._on_session_update = function(update)
+    table.insert(updates, update)
+  end
+  -- Use session/load directly: the plugin can create a new session after a failed load.
+  local ok, result = pcall(conn.send_rpc_request, conn, "session/load", {
+    sessionId = session.sessionId,
+    cwd = cwd,
+    mcpServers = conn.adapter_modified.defaults.mcpServers or {},
+  })
+  conn._loading_session = nil
+  conn._on_session_update = nil
+  if not ok or not result then
+    conn.session_id = nil
+    error(
+      "Could not resume "
+        .. title(session)
+        .. ". Close it in any other Codex client first, then retry; see :messages for details."
+    )
+  end
+  if result.configOptions then
+    conn:_apply_config_options(result.configOptions)
+  end
+  if not hidden and vim.fs.normalize(cwd) ~= vim.fs.normalize(vim.fn.getcwd()) then
+    vim.cmd.tabnew()
+    vim.cmd.tcd(vim.fn.fnameescape(cwd))
+  end
+  local chat = require("codecompanion").chat({
+    params = { adapter = "codex" },
+    hidden = hidden,
+    stop_context_insertion = true,
+    auto_submit = false,
+    callbacks = {
+      on_created = function(created)
+        -- Transfer the loaded connection before the scheduled ACP setup runs.
+        created.acp_connection = conn
+        conn.chat = created
+        connection = nil
+        require("codecompanion.interactions.chat.acp.commands").link_buffer_to_session(created.bufnr, session.sessionId)
+        require("codecompanion.interactions.shared.watch").enable()
+        created:update_metadata()
+        require("codecompanion.interactions.chat.acp.render").restore_session(created, updates)
+        created:set_title(title(session))
+        require("codecompanion.utils").fire("ACPChatRestored", {
+          bufnr = created.bufnr,
+          id = created.id,
+          session_id = session.sessionId,
+          title = created.title,
+        })
+      end,
+    },
+  })
+  return assert(chat, "Could not open the resumed chat buffer.")
+end
+
 local function resume(session)
   local existing = open_chats(session.sessionId)[1]
   if existing then
     return require("codecompanion.interactions.chat").open({ ui = existing.ui })
   end
   run(function()
-    local cwd = type(session.cwd) == "string" and session.cwd or vim.fn.getcwd()
-    assert(vim.fn.isdirectory(cwd) == 1, "The conversation's project directory no longer exists: " .. cwd)
-    local conn = get_connection()
-    assert(conn:can_load_session(), "This Codex adapter does not support resuming sessions.")
-    local updates = {}
-    conn.session_id = session.sessionId
-    conn._loading_session = true
-    conn._on_session_update = function(update)
-      table.insert(updates, update)
-    end
-    -- Use session/load directly: the plugin's load_session can create a new
-    -- session after a failed load, which would hide a failure to resume.
-    local ok, result = pcall(conn.send_rpc_request, conn, "session/load", {
-      sessionId = session.sessionId,
-      cwd = cwd,
-      mcpServers = conn.adapter_modified.defaults.mcpServers or {},
-    })
-    conn._loading_session = nil
-    conn._on_session_update = nil
-    if not ok or not result then
-      conn.session_id = nil
-      error(
-        "Could not resume "
-          .. title(session)
-          .. ". Close it in any other Codex client first, then retry; see :messages for details."
-      )
-    end
-    if result.configOptions then
-      conn:_apply_config_options(result.configOptions)
-    end
-    if vim.fs.normalize(cwd) ~= vim.fs.normalize(vim.fn.getcwd()) then
-      vim.cmd.tabnew()
-      vim.cmd.tcd(vim.fn.fnameescape(cwd))
-    end
-    local chat = require("codecompanion").chat({
-      params = { adapter = "codex" },
-      stop_context_insertion = true,
-      auto_submit = false,
-      callbacks = {
-        on_created = function(created)
-          -- Transfer the loaded connection before the scheduled ACP setup runs.
-          created.acp_connection = conn
-          conn.chat = created
-          connection = nil
-          require("codecompanion.interactions.chat.acp.commands").link_buffer_to_session(
-            created.bufnr,
-            session.sessionId
-          )
-          require("codecompanion.interactions.shared.watch").enable()
-          created:update_metadata()
-          require("codecompanion.interactions.chat.acp.render").restore_session(created, updates)
-          created:set_title(title(session))
-          require("codecompanion.utils").fire("ACPChatRestored", {
-            bufnr = created.bufnr,
-            id = created.id,
-            session_id = session.sessionId,
-            title = created.title,
-          })
-        end,
-      },
-    })
-    assert(chat, "Could not open the resumed chat buffer.")
+    load_chat(session)
     notify("Resumed: " .. title(session))
+  end)
+end
+
+local function save_open_chats()
+  local chats = {}
+  local codecompanion = package.loaded.codecompanion
+  if type(codecompanion) == "table" then
+    for _, entry in ipairs(codecompanion.buf_get_chat()) do
+      local chat = entry.chat
+      local id = chat.acp_connection and chat.acp_connection.session_id
+      if chat.adapter.name == "codex" and id then
+        local win = chat.ui:is_visible() and chat.ui.winnr
+        table.insert(chats, {
+          id = id,
+          tab = win and vim.api.nvim_tabpage_get_number(vim.api.nvim_win_get_tabpage(win)) or nil,
+          focused = win == vim.api.nvim_get_current_win(),
+        })
+      end
+    end
+  end
+  -- LazyVim includes `globals` in sessionoptions. Store only chat IDs and placement.
+  vim.g.CodeCompanionSessionChats = #chats > 0 and vim.json.encode(chats) or nil
+end
+
+local function restore_open_chats()
+  local saved = vim.g.CodeCompanionSessionChats
+  vim.g.CodeCompanionSessionChats = nil
+  if type(saved) ~= "string" then
+    return
+  end
+  local ok, chats = pcall(vim.json.decode, saved)
+  if not ok or not vim.islist(chats) then
+    return notify("Could not read the saved chat list for this editor session.", vim.log.levels.WARN)
+  end
+
+  vim.schedule(function()
+    local start_win = vim.api.nvim_get_current_win()
+    local tabs = vim.api.nvim_list_tabpages()
+    run(function()
+      local sessions, visible = nil, {}
+      for _, state in ipairs(chats) do
+        local chat = open_chats(state.id)[1]
+        if not chat then
+          if not sessions then
+            sessions = {}
+            -- The working directory for a Codex conversation can differ from the editor session's directory.
+            for _, session in ipairs(list_sessions({ all = true })) do
+              sessions[session.sessionId] = session
+            end
+          end
+          local session = sessions[state.id]
+          if session then
+            local loaded, result = pcall(load_chat, session, true)
+            if loaded then
+              chat = result
+            else
+              notify(tostring(result), vim.log.levels.WARN)
+            end
+          else
+            notify("Saved Codex conversation is no longer available: " .. state.id, vim.log.levels.WARN)
+          end
+        end
+        if chat and state.tab then
+          table.insert(visible, { chat = chat, tab = tabs[state.tab], focused = state.focused })
+        end
+      end
+
+      local current_win = vim.api.nvim_get_current_win()
+      local focus = current_win
+      local codecompanion = require("codecompanion")
+      for _, entry in ipairs(visible) do
+        if entry.tab and vim.api.nvim_tabpage_is_valid(entry.tab) then
+          vim.api.nvim_set_current_tabpage(entry.tab)
+        end
+        codecompanion.restore(entry.chat.bufnr)
+        if entry.focused and current_win == start_win then
+          focus = vim.api.nvim_get_current_win()
+        end
+      end
+      if vim.api.nvim_win_is_valid(focus) then
+        vim.api.nvim_set_current_win(focus)
+      end
+    end)
   end)
 end
 
@@ -235,6 +319,24 @@ local function choose(opts, deleting)
 end
 
 function M.setup()
+  local group = vim.api.nvim_create_augroup("CodeCompanionEditorSession", { clear = true })
+  vim.api.nvim_create_autocmd("User", {
+    group = group,
+    pattern = "PersistenceSavePre",
+    callback = save_open_chats,
+  })
+  vim.api.nvim_create_autocmd("User", {
+    group = group,
+    pattern = { "PersistenceSavePost", "PersistenceLoadPre" },
+    callback = function()
+      vim.g.CodeCompanionSessionChats = nil
+    end,
+  })
+  vim.api.nvim_create_autocmd("User", {
+    group = group,
+    pattern = "PersistenceLoadPost",
+    callback = restore_open_chats,
+  })
   vim.api.nvim_create_user_command("CodeCompanionList", function(args)
     choose({ all = args.bang }, false)
   end, { bang = true, desc = "List saved Codex chats; ! includes all projects", force = true })

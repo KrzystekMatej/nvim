@@ -63,6 +63,9 @@ return {
       interactions = {
         chat = {
           adapter = "codex",
+          keymaps = {
+            clear = { modes = { n = "<leader>ax" } },
+          },
         },
       },
     },

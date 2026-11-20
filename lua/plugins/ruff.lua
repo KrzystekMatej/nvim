@@ -1,0 +1,22 @@
+return {
+  {
+    "neovim/nvim-lspconfig",
+    opts = {
+      servers = {
+        ruff = {
+          init_options = {
+            settings = {
+              configuration = {
+                lint = {
+                  ["per-file-ignores"] = {
+                    ["*.ipynb"] = { "EXE002" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+}
