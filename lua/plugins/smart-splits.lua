@@ -7,7 +7,7 @@ return {
   },
   opts = {
     mux = {
-      backend = "smart-splits-backend-kitty",
+      backend = vim.fn.has("win32") == 1 and {} or "smart-splits-backend-kitty",
     },
   },
   keys = {

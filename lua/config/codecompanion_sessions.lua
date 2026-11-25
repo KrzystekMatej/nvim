@@ -267,7 +267,8 @@ local function delete_session(session)
     if choice ~= "Delete permanently" or not check_idle() then
       return
     end
-    if vim.fn.executable("codex") ~= 1 then
+    local command = require("config.codex_commands").cli()
+    if vim.fn.executable(command[1]) ~= 1 or (command[2] and vim.fn.filereadable(command[2]) ~= 1) then
       return notify("The codex executable is not on Neovim's PATH.", vim.log.levels.ERROR)
     end
     for _, chat in ipairs(open_chats(session.sessionId)) do
@@ -275,7 +276,8 @@ local function delete_session(session)
     end
     -- ACP session/delete may only archive a thread. The native command deletes
     -- its transcript; --force avoids a second prompt after our explicit one.
-    vim.system({ "codex", "delete", session.sessionId, "--force" }, { text = true }, function(result)
+    vim.list_extend(command, { "delete", session.sessionId, "--force" })
+    vim.system(command, { text = true }, function(result)
       if result.code == 0 then
         notify("Deleted: " .. title(session))
       else
