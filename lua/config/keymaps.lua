@@ -1,5 +1,5 @@
 -- added shortcut to close a window
-vim.keymap.set("n", "<C-q>", "<cmd>close<cr>", { desc = "Close Window" })
+vim.keymap.set("n", "<A-q>", "<cmd>close<cr>", { desc = "Close Window" })
 -- to move in insert mode with h/j/k/l motions
 vim.keymap.set("i", "<C-h>", "<Left>", { desc = "Move Left" })
 vim.keymap.set("i", "<C-j>", "<Down>", { desc = "Move Down" })
