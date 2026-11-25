@@ -1,4 +1,4 @@
-# LazyVim for Ambitious Developers — Cheat Sheet
+# LazyVim Config Cheat Sheet
 
 ## Reading this sheet
 
