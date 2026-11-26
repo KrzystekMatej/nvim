@@ -1,13 +1,22 @@
+local is_windows = vim.fn.has("win32") == 1
+
 return {
   "smart-splits-nvim/smart-splits.nvim",
   version = "^3.0.0",
   lazy = false,
   dependencies = {
+    {
+      "smart-splits-nvim/backend-wezterm",
+      main = "smart-splits-backend-wezterm",
+      opts = {
+        cli_path = "wezterm",
+      },
+    },
     "smart-splits-nvim/backend-kitty",
   },
   opts = {
     mux = {
-      backend = vim.fn.has("win32") == 1 and {} or "smart-splits-backend-kitty",
+      backend = is_windows and "smart-splits-backend-wezterm" or "smart-splits-backend-kitty",
     },
   },
   keys = {

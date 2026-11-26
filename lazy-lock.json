@@ -2,6 +2,7 @@
   "LazyVim": { "branch": "main", "commit": "0fa4a847929fc6beae40a3063615a58115678c34" },
   "SchemaStore.nvim": { "branch": "main", "commit": "5926c7899b2e36cd0f944ef3a933abd68c0fcdb8" },
   "backend-kitty": { "branch": "main", "commit": "07b528c5c52054cc995d013abae18ef77d3f6217" },
+  "backend-wezterm": { "branch": "master", "commit": "ae840db696791f638c190c3e0534d2ddfcd5e6a7" },
   "blink-copilot": { "branch": "main", "commit": "7ad8209b2f880a2840c94cdcd80ab4dc511d4f39" },
   "blink.cmp": { "branch": "main", "commit": "78336bc89ee5365633bcf754d93df01678b5c08f" },
   "bufferline.nvim": { "branch": "main", "commit": "655133c3b4c3e5e05ec549b9f8cc2894ac6f51b3" },
