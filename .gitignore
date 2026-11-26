@@ -3,3 +3,5 @@
 *.swo
 *~
 Session.vim
+/mini-files-bookmarks.json
+/mini-files-bookmarks.json.tmp
