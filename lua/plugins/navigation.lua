@@ -14,6 +14,7 @@ return {
         ["*"] = {
           keys = {
             { "<C-k>", false, mode = "i" },
+            { "<C-.>", vim.lsp.buf.code_action, desc = "Code Action", mode = { "n", "i", "x" }, has = "codeAction" },
           },
         },
       },
